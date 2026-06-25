@@ -85,12 +85,7 @@ jobs:
       - run:
           name: Write large BASH_ENV payload
           command: |
-            python3 - <<'PY'
-            import os
-            blob = "x" * 50000
-            with open(os.environ["BASH_ENV"], "a") as f:
-                f.write(f'export BIG_BLOB="{blob}"\n')
-            PY
+            python3 -c 'import os; blob="x"*50000; open(os.environ["BASH_ENV"],"a").write(f"export BIG_BLOB=\"{blob}\"\n")'
             source "$BASH_ENV"
             echo "large env step 1 ok"
       - run:
