@@ -1,0 +1,5 @@
+FROM alpine:3.20
+RUN apk add --no-cache bash coreutils \
+  && adduser -D -u 1001 appuser
+USER appuser
+WORKDIR /home/circleci/project

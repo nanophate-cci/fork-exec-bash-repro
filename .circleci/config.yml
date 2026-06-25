@@ -1,0 +1,152 @@
+version: 2.1
+
+parameters:
+  stress-count:
+    type: integer
+    default: 10
+
+jobs:
+  baseline-cimg:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - run:
+          name: Shell diagnostics
+          command: |
+            set -x
+            whoami
+            id
+            ls -la /bin/bash /bin/sh
+            /bin/bash --version | head -1
+            echo "baseline ok"
+
+  alpine-sh-only:
+    docker:
+      - image: alpine:3.20
+    steps:
+      - run:
+          name: Force /bin/sh shell (alpine has no bash)
+          shell: /bin/sh -eo pipefail
+          command: |
+            set -x
+            which sh
+            echo "alpine sh ok"
+      - run:
+          name: Default shell on alpine (no /bin/bash)
+          command: echo "this step uses default /bin/bash"
+
+  alpine-with-bash:
+    docker:
+      - image: alpine:3.20
+    steps:
+      - run:
+          name: Install bash then use default shell
+          command: |
+            apk add --no-cache bash
+            /bin/bash --version | head -1
+            echo "alpine+bash ok"
+
+  simulate-bash-not-executable:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - run:
+          name: Remove execute bit from bash
+          command: sudo chmod 000 /bin/bash
+      - run:
+          name: Next step should fail to exec bash
+          command: echo "should not reach here"
+
+  user-root-missing:
+    docker:
+      - image: grafana/k6:0.54.0
+        user: root
+    steps:
+      - run:
+          name: root user on k6 image
+          command: echo "root user test"
+
+  user-nonroot-restricted:
+    docker:
+      - image: cimg/base:current
+        user: nobody
+    steps:
+      - run:
+          name: nobody user
+          command: |
+            whoami
+            id
+            echo "nobody ok"
+
+  large-env-stress:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - run:
+          name: Write large BASH_ENV payload
+          command: |
+            python3 - <<'PY'
+            import os
+            blob = "x" * 50000
+            with open(os.environ["BASH_ENV"], "a") as f:
+                f.write(f'export BIG_BLOB="{blob}"\n')
+            PY
+            source "$BASH_ENV"
+            echo "large env step 1 ok"
+      - run:
+          name: Second step sources BASH_ENV again
+          command: |
+            echo "${BIG_BLOB:0:20}..."
+            echo "large env step 2 ok"
+
+  fork-stress:
+    docker:
+      - image: cimg/base:current
+    parallelism: << pipeline.parameters.stress-count >>
+    steps:
+      - run:
+          name: Rapid subshell fork stress
+          command: |
+            set -x
+            for i in $(seq 1 50); do
+              /bin/bash -c "echo worker ${CIRCLE_NODE_INDEX} fork $i"
+            done
+            echo "fork stress node ${CIRCLE_NODE_INDEX} ok"
+
+  repeat-trivial:
+    docker:
+      - image: cimg/base:current
+    parallelism: << pipeline.parameters.stress-count >>
+    steps:
+      - run: echo "node ${CIRCLE_NODE_INDEX} trivial ok"
+      - run: echo "node ${CIRCLE_NODE_INDEX} step 2 ok"
+      - run: echo "node ${CIRCLE_NODE_INDEX} step 3 ok"
+      - run: echo "node ${CIRCLE_NODE_INDEX} step 4 ok"
+      - run: echo "node ${CIRCLE_NODE_INDEX} step 5 ok"
+
+  make-on-alpine:
+    docker:
+      - image: alpine:3.20
+    steps:
+      - run:
+          name: make invoking /bin/sh (historical EPERM class)
+          shell: /bin/sh -eo pipefail
+          command: |
+            apk add --no-cache make
+            cd /tmp
+            printf 'all:\n\techo OK\n' > Makefile
+            make
+
+workflows:
+  repro-matrix:
+    jobs:
+      - baseline-cimg
+      - alpine-sh-only
+      - alpine-with-bash
+      - simulate-bash-not-executable
+      - user-root-missing
+      - user-nonroot-restricted
+      - large-env-stress
+      - fork-stress
+      - repeat-trivial
+      - make-on-alpine

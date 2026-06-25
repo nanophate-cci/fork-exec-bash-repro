@@ -1,0 +1,4 @@
+FROM alpine:3.20
+# Deliberately no bash — only /bin/sh
+RUN apk add --no-cache coreutils
+WORKDIR /home/circleci/project
